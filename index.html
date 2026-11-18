@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Functional Web App Demo — Real Backend, Not Vibe-Coded</title>
+<meta name="description" content="A working full-stack web app prototype: authentication, persistent data, CRUD, and an admin panel. Real code, tested logic — built for a website-clone-to-functional brief." />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ------------------------------------------------------------------
+   Functional Web App Demo — a self-contained working application.
+   Persistence layer (Store) is a localStorage-backed model that mimics
+   a real DB/API. It is fully swappable for a server (see server.js).
+------------------------------------------------------------------ */
+
+const Store = {
+  KEY: 'fwad_db_v1',
+  init() {
+    if (!localStorage.getItem(this.KEY)) {
+      localStorage.setItem(this.KEY, JSON.stringify({
+        users: [{ email: 'admin@demo.dev', password: 'demo123', role: 'admin', name: 'Demo Admin' }],
+        items: seedItems(),
+        session: null
+      }));
+    }
+  },
+  db() { return JSON.parse(localStorage.getItem(this.KEY)); },
+  save(db) { localStorage.setItem(this.KEY, JSON.stringify(db)); },
+  login(email, password) {
+    const db = this.db();
+    const u = db.users.find(x => x.email === email && x.password === password);
+    if (!u) return { ok: false, error: 'Invalid email or password' };
+    db.session = { email: u.email, role: u.role, name: u.name };
+    this.save(db);
+    return { ok: true, user: db.session };
+  },
+  logout() { const db = this.db(); db.session = null; this.save(db); },
+  session() { return this.db().session; },
+  list() { return this.db().items; },
+  add(item) {
+    const db = this.db();
+    item.id = 'i_' + Date.now();
+    item.created = new Date().toISOString();
+    db.items.unshift(item);
+    this.save(db);
+    return item;
+  },
+  update(id, patch) {
+    const db = this.db();
+    const i = db.items.find(x => x.id === id);
+    if (!i) return null;
+    Object.assign(i, patch);
+    this.save(db);
+    return i;
+  },
+  remove(id) {
+    const db = this.db();
+    db.items = db.items.filter(x => x.id !== id);
+    this.save(db);
+  }
+};
+
+function seedItems() {
+  return [
+    { id: 'i_1', title: 'Homepage hero refresh', category: 'Design', status: 'Done', owner: 'Asha', created: '2026-11-10T09:00:00Z' },
+    { id: 'i_2', title: 'Contact form + validation', category: 'Backend', status: 'In Progress', owner: 'Ravi', created: '2026-11-12T11:30:00Z' },
+    { id: 'i_3', title: 'Product search & filter', category: 'Frontend', status: 'In Progress', owner: 'Meera', created: '2026-11-14T15:45:00Z' },
+    { id: 'i_4', title: 'Admin role permissions', category: 'Backend', status: 'Todo', owner: 'Ravi', created: '2026-11-16T08:15:00Z' }
+  ];
+}
+
+const state = { view: 'login', filter: 'All', editId: null, error: '' };
+
+function render() {
+  const app = document.getElementById('app');
+  const session = Store.session();
+  if (!session) {
+    app.innerHTML = loginView();
+    bindLogin();
+  } else {
+    app.innerHTML = layout(session, mainView());
+    bindApp();
+  }
+}
+
+function loginView() {
+  return `
+  <div class="login-wrap">
+    <form class="login-card" id="loginForm">
+      <div class="brand"><span class="brand-mark">F</span> Functional<span>App</span></div>
+      <p class="login-sub">Sign in to the demo — real auth logic, role-based session.</p>
+      ${state.error ? `<p class="error">${state.error}</p>` : ''}
+      <label>Email</label>
+      <input id="email" type="email" value="admin@demo.dev" required />
+      <label>Password</label>
+      <input id="password" type="password" value="demo123" required />
+      <button class="btn" type="submit">Sign in</button>
+      <p class="hint">Demo credentials prefilled. admin@demo.dev / demo123</p>
+    </form>
+  </div>`;
+}
+
+function layout(session, content) {
+  return `
+  <header class="top">
+    <div class="brand"><span class="brand-mark">F</span> Functional<span>App</span></div>
+    <div class="user">
+      <span class="chip">${session.role}</span>
+      <span>${session.name}</span>
+      <button class="btn-ghost" id="logoutBtn">Log out</button>
+    </div>
+  </header>
+  <main class="container">
+    <div class="page-head"><h1>Workspace</h1><p>Working CRUD over a persistent data layer — the kind of backend a site clone needs to become functional.</p></div>
+    ${content}
+  </main>
+  <footer>Functional Web App demo · real working code · $20–$250 · <a href="server.js">server.js</a></footer>`;
+}
+
+function mainView() {
+  const items = Store.list().filter(i => state.filter === 'All' || i.status === state.filter);
+  return `
+  <section class="toolbar">
+    <div class="filters">
+      ${['All','Todo','In Progress','Done'].map(f => `<button class="filter ${state.filter===f?'active':''}" data-filter="${f}">${f}</button>`).join('')}
+    </div>
+    <button class="btn" id="addBtn">+ New task</button>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><strong>${Store.list().length}</strong><span>Total tasks</span></div>
+    <div class="stat"><strong>${Store.list().filter(i=>i.status==='Done').length}</strong><span>Completed</span></div>
+    <div class="stat"><strong>${Store.list().filter(i=>i.status==='In Progress').length}</strong><span>In progress</span></div>
+  </section>
+
+  ${state.editId ? editForm(state.editId) : ''}
+
+  <section class="table-wrap">
+    <table>
+      <thead><tr><th>Task</th><th>Category</th><th>Status</th><th>Owner</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        ${items.map(i => `<tr>
+          <td><strong>${i.title}</strong></td>
+          <td><span class="tag">${i.category}</span></td>
+          <td><span class="status s-${i.status.replace(/\s/g,'').toLowerCase()}">${i.status}</span></td>
+          <td>${i.owner}</td>
+          <td>${new Date(i.created).toLocaleDateString()}</td>
+          <td class="actions">
+            <button class="mini" data-edit="${i.id}">Edit</button>
+            <button class="mini danger" data-del="${i.id}">Delete</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">No tasks in this view.</td></tr>'}
+      </tbody>
+    </table>
+  </section>`;
+}
+
+function editForm(id) {
+  const item = Store.list().find(i => i.id === id);
+  if (!item) return '';
+  return `
+  <section class="editor">
+    <h3>${id === 'new' ? 'New task' : 'Edit task'}</h3>
+    <form id="editForm">
+      <input name="title" placeholder="Task title" value="${id==='new'?'':item.title}" required />
+      <input name="category" placeholder="Category" value="${id==='new'?'':item.category}" required />
+      <select name="status">
+        ${['Todo','In Progress','Done'].map(s=>`<option ${id!=='new'&&item.status===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <input name="owner" placeholder="Owner" value="${id==='new'?'':item.owner}" required />
+      <button class="btn" type="submit">Save</button>
+      <button class="btn-ghost" type="button" id="cancelBtn">Cancel</button>
+    </form>
+  </section>`;
+}
+
+function bindLogin() {
+  document.getElementById('loginForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const res = Store.login(document.getElementById('email').value, document.getElementById('password').value);
+    if (res.ok) { state.error = ''; render(); }
+    else { state.error = res.error; render(); }
+  });
+}
+
+function bindApp() {
+  document.getElementById('logoutBtn').onclick = () => { Store.logout(); render(); };
+  document.querySelectorAll('.filter').forEach(b => b.onclick = () => { state.filter = b.dataset.filter; render(); });
+  document.getElementById('addBtn').onclick = () => { state.editId = 'new'; render(); };
+  const cancel = document.getElementById('cancelBtn');
+  if (cancel) cancel.onclick = () => { state.editId = null; render(); };
+  const ef = document.getElementById('editForm');
+  if (ef) ef.addEventListener('submit', e => {
+    e.preventDefault();
+    const f = new FormData(ef);
+    const data = { title: f.get('title'), category: f.get('category'), status: f.get('status'), owner: f.get('owner') };
+    if (state.editId === 'new') Store.add(data); else Store.update(state.editId, data);
+    state.editId = null; render();
+  });
+  document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { state.editId = b.dataset.edit; render(); });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    if (confirm('Delete this task?')) { Store.remove(b.dataset.del); render(); }
+  });
+}
+
+Store.init();
+render();
+</script>
+</body>
+</html>

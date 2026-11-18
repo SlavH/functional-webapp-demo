@@ -160,7 +160,10 @@ function mainView() {
 }
 
 function editForm(id) {
-  const item = Store.list().find(i => i.id === id);
+  const isNew = id === 'new';
+  const item = isNew
+    ? { title: '', category: '', status: 'Todo', owner: '' }
+    : Store.list().find(i => i.id === id);
   if (!item) return '';
   return `
   <section class="editor">
